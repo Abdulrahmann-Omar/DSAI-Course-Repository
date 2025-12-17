@@ -1,0 +1,82 @@
+import socket
+import random
+import struct
+import time
+
+# Receiver configuration
+RECEIVER_PORT = 12345  # Port to listen on
+PACKET_LOSS_RATE = 0.1  # Simulated packet loss rate (10%)
+BUFFER_SIZE = 4096  # Buffer size for receiving packets
+
+# Packet structure
+PACKET_FORMAT = '!HH'  # Packet ID and File ID (both 16-bit unsigned integers)
+
+def receive_file(filename):
+    """Receives a file using the GBN protocol over UDP."""
+
+    # Create a UDP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', RECEIVER_PORT))
+
+    expected_packet_id = 0
+    received_data = b''
+    file_id = None
+    start_time = None
+    retransmissions = 0
+
+    while True:
+        # Receive a packet
+        data, addr = sock.recvfrom(BUFFER_SIZE)
+
+        if start_time is None:
+            start_time = time.time()
+
+        # Simulate packet loss
+        if random.random() < PACKET_LOSS_RATE:
+            print(f"Packet loss simulated for Packet ID: {expected_packet_id}")
+            retransmissions += 1
+            continue
+
+        # Extract packet header
+        packet_id, received_file_id = struct.unpack(PACKET_FORMAT, data[:4])
+
+        if file_id is None:
+            file_id = received_file_id
+
+        # Check if it's the expected packet
+        if packet_id == expected_packet_id:
+            print(f"Received Packet ID: {packet_id}")
+            received_data += data[4:]  # Append application data
+
+            # Check for end-of-file marker
+            if data[-2:] == b'\xff\xff':
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print("File transfer complete!")
+                break
+
+            expected_packet_id += 1
+
+        # Send an ACK for the last correctly received packet
+        ack_packet = struct.pack(PACKET_FORMAT, file_id, expected_packet_id - 1)
+        sock.sendto(ack_packet, addr)
+
+    # Write the received data to the file
+    with open(filename, 'wb') as f:
+        f.write(received_data)
+
+    sock.close()
+
+    # Display transfer statistics
+    print("\nFile Transfer Statistics:")
+    print(f"  Start Time: {time.ctime(start_time)}")
+    print(f"  End Time: {time.ctime(end_time)}")
+    print(f"  Elapsed Time: {elapsed_time:.2f} seconds")
+    print(f"  Number of Packets: {expected_packet_id}")
+    print(f"  Number of Bytes: {len(received_data)}")
+    print(f"  Number of Retransmissions: {retransmissions}")
+    print(f"  Average Transfer Rate: {len(received_data) / elapsed_time:.2f} bytes/sec")
+
+if __name__ == "__main__":
+    filename = "received_file.txt"  # Name of the file to save
+    receive_file(filename)
